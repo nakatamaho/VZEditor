@@ -1,0 +1,43 @@
+VZ Editor Ver1.60  PC-88VA (PC-Engine) 版
+
+PC-88VA の PC-Engine (1.1 で確認) で動く VZ Editor です。
+PC-98 版のソースから作ったもので、PC-98 版の DEF ファイルがそのまま
+使えます。動作確認はエミュレータ (vaeg) 上で行いました。
+
+■ インストール
+
+  このディスクのファイルを、PC-Engine のシステムディスクなどへコピー
+  してください。最低限必要なのは次の 3 つです。
+
+      VZVA.COM   VZ.DEF   VZFL.DEF
+
+  例 (このディスクが B: のとき)
+      copy b:vzva.com a:
+      copy b:vz.def a:
+      copy b:vzfl.def a:
+
+■ 起動
+
+      VZVA [ファイル名]
+
+  使い方は PC-98 版と同じです (README.DOC, VZ16.DOC を参照)。
+
+■ PC-Engine 版の違い
+
+  ・VZ の実行中は画面を 25 行にします。終了すると元に戻ります。
+  ・日本語入力は PC-Engine の日本語入力 (全角キーで ON) を使います。
+  ・ESC E では PC-Engine の内部コマンド (dir, type, copy など) と
+    .COM / .EXE ファイルを実行できます。COMMAND.COM が無いので、
+    コマンドを入れずにシェルを起動することはできません。
+  ・常駐モード (-z)、EMS/XMS、コンソール出力の取込みは使えません。
+  ・スムーススクロールは行単位です。
+
+■ ファイル
+
+  VZVA.COM   エディタ本体 (PC-88VA 版)
+  *.DEF      カスタマイズファイル (PC-98 版と同じ)
+  README.DOC VZ16.DOC MAC16.DOC   PC-98 版のドキュメント
+  LICENSE.TXT  ライセンス
+
+  ソース: https://github.com/nakatamaho/VZEditor (PC88VA.md)
+

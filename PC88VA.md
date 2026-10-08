@@ -29,6 +29,25 @@ python3 tools/cmpcom.py build/98/VZ.COM VZ-PC98/VZ.COM
 MS-DOS 上では従来どおり `mk va` (MASM 5.1) でもビルドできるはずです
 (未確認)。
 
+## インストールディスク
+
+`FDImage/VZ_VA.D88` は PC-88VA 版のインストール用 2HD イメージ (D88 形式) です。
+PC-98 の MS-DOS 形式 (1024 バイト x 8 セクタ x 77 シリンダ, FAT12) で、
+システムは入っていません。`VZVA.COM`, `VZVA.DOC` (説明), PC-98 版の
+DEF ファイルとドキュメント、ライセンスを収録しています。
+
+PC-Engine を起動し、このディスクを 2 台目のドライブに入れて、必要な
+ファイルをコピーしてください。
+
+```
+copy b:vzva.com a:
+copy b:vz.def a:
+copy b:vzfl.def a:
+```
+
+イメージは `tools/mkvadisk.sh` で `build/VA/VZVA.COM` から作り直せます
+(何度作っても同じイメージになります)。
+
 ## 使い方
 
 `VZVA.COM` と、PC-98 版の `VZ.DEF`, `VZFL.DEF` を同じディレクトリに置いて
