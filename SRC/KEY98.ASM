@@ -39,6 +39,24 @@ INT_WXP		equ	70h
 GDATA stopintnum,dw,	06h*4
 	endbs
 
+IFDEF PC88VA
+	wseg
+	extrn	dspkeyf		:byte
+	extrn	fkeymode	:byte
+	endws
+	extrn	abputc		:near
+	extrn	cvtjis		:near
+	extrn	dosheight	:near
+	extrn	getatr		:near
+	extrn	mkscrnp		:near
+
+	dseg
+va_kanji2	db	0		; 2nd byte of a kanji from the JFP
+va_lastscan	db	0		; scan code of the last key read
+va_matrix	db	16 dup(0)	; key matrix by KyGroup
+	endds
+ENDIF
+
 ;--- External symbols ---
 
 	wseg
@@ -280,6 +298,9 @@ mskanji	endp
 
 	public	initkeytbl
 initkeytbl proc
+IFDEF PC88VA
+	clr	ax
+ELSE
 	mov	ax,0020h
 	eios	11h			; ##150.03  suppress printer echo
 	clr	ax
@@ -291,6 +312,7 @@ _ifn z
 	mov	al,3
   _endif
 _endif
+ENDIF
 	mov	fkeytype,al
 	mov	ax,KTBLSZ
 	clr	dx
@@ -410,6 +432,9 @@ initfnckey endp
 
 ;	public	getkeytbl
 getkeytbl proc
+IFDEF PC88VA
+	ret
+ENDIF
 	call	is_dossilent
 	mov	cl,0Ch
 getkeytbl1:
@@ -425,6 +450,15 @@ getkeytbl endp
 setkey	proc
 	call	is_dossilent
 	mov	keymode,al
+IFDEF PC88VA
+	cmp	al,KEY_DOS
+	mov	ax,0201h		; ExpCtrl: soft keys return key codes
+  _if e
+	mov	al,0			; expand soft key strings
+  _endif
+	int	INT_KBBIOS
+	ret
+ENDIF
 	cmp	al,KEY_VZ		; ##156.137
 	mov	ax,0
 _ifn e
@@ -473,6 +507,17 @@ swapktbl endp
 
 	public	getkeycode
 getkeycode proc
+IFDEF PC88VA
+	cmp	sysmode,SYS_FILER
+  _if b
+	call	checkfp
+  _endif
+  _repeat
+	call	check_delay
+	call	checkfkey
+	call	read_key
+  _while z
+ELSE
 	mov	ah,sysmode
 	cmp	ah,SYS_FILER
 _if b
@@ -514,6 +559,7 @@ IFDEF CVTKANA
 	call	cvtkanakey
 ENDIF
 _endif
+ENDIF
 	cmp	ax,1A00h	; ^@ ##16
 _if e
 	clr	ax
@@ -521,8 +567,10 @@ _endif
 	mov	dx,ax
 	call	shift_key
         and	ah,KEY_CTRL+KEY_ALT+KEY_SHIFT
+IFNDEF PC88VA
 	cmp	dl,FKEYCODE
 	je	gfunc1
+ENDIF
 	cmp	dl,SPC
 	jb	gctrl1
 	test	ah,KEY_CTRL+KEY_ALT
@@ -536,7 +584,11 @@ gchar2:	mov	ax,dx
 	call	iskanji
 	jnc	gchar4
 	mov	dh,dl
+IFDEF PC88VA
+	mov	al,ss:va_kanji2
+ELSE
 	msdos	F_CONIN
+ENDIF
 gchar3:	mov	dl,al
 gchar4:	clr	ax
 	jmps	gcode9
@@ -660,6 +712,16 @@ cvtctrl	endp
 ;<-- NZ :key on
 
 testkey proc
+IFDEF PC88VA
+	cmp	al,ss:va_lastscan
+	mov	al,0
+  _if e
+	inc	ax			; NZ :key on
+	ret
+  _endif
+	cmp	al,al			; ZR :key off
+	ret
+ENDIF
 	push	es
 	clr	bx
 	mov	es,bx
@@ -737,8 +799,15 @@ wait_key endp
 	public	sense_key
 sense_key proc
 	push	bx
+IFDEF PC88VA
+	mov	ah,01h			; SnsChar
+	int	INT_KBBIOS
+	jc	rkey_none
+	or	sp,sp			; NZ
+ELSE
 	bios	01h
 	tst	bh
+ENDIF
 	pop	bx
 	ret
 sense_key endp
@@ -746,10 +815,51 @@ sense_key endp
 	public	read_key
 read_key proc
 	push	bx
+IFDEF PC88VA
+;<-- ZR :no key
+;    AH :scan code, AL :character (as INT 18h of PC-98)
+;    a kanji from the JFP: AH=0, AL=1st byte, va_kanji2=2nd byte
+	mov	ah,01h			; SnsChar
+	int	INT_KBBIOS
+	jc	rkey_none
+	mov	ah,00h			; GetChar
+	int	INT_KBBIOS
+	cmp	bx,0FFFFh		; converted by the JFP
+  _if e
+	clr	bh
+  _endif
+	mov	bl,bh
+	and	bl,0EFh
+	cmp	bl,0AAh			; [SHIFT]/[CTRL]+arrow: AAh-ADh/BAh-BDh
+  _if ae
+	cmp	bl,0ADh
+    _if be
+	and	bh,0Fh			; -> 3Ah-3Dh like PC-98
+	or	bh,30h
+    _endif
+  _endif
+	mov	ss:va_lastscan,bh
+	tst	ah
+  _ifn z
+	mov	ss:va_kanji2,al
+	mov	al,ah
+	clr	ah
+  _else
+	mov	ah,bh
+  _endif
+	or	sp,sp			; NZ
+ELSE
 	bios	05h
 	tst	bh
+ENDIF
 	pop	bx
 	ret
+IFDEF PC88VA
+rkey_none:
+	clr	ax			; ZR
+	pop	bx
+	ret
+ENDIF
 read_key endp
 
 	public	flush_key
@@ -762,7 +872,12 @@ _repeat
   _break e
 	cmp	al,SPC
   _break ae
+IFDEF PC88VA
+	mov	ah,00h			; GetChar
+	int	INT_KBBIOS
+ELSE
 	bios	00h
+ENDIF
 _until
 	popm	<bx,ax>
 	ret
@@ -770,6 +885,20 @@ flush_key endp
 
 	public	shift_key
 shift_key proc
+IFDEF PC88VA
+;  PC-Engine: b0 SHIFT(L), b1 SHIFT(R), b2 CAPS, b3 KANA, b4 GRPH, b5 CTRL
+;  -> PC-98:  b0 SHIFT, b1 CAPS, b2 KANA, b3 GRPH, b4 CTRL
+	mov	ah,0Bh			; PrmSfts
+	int	INT_KBBIOS
+	mov	ah,al
+	shr	ah,1
+	or	al,ah
+	and	al,1
+	and	ah,00011110b
+	or	al,ah
+	mov	ah,al
+	ret
+ELSE
 	push	es
 	clr	ax
 	mov	es,ax
@@ -777,17 +906,38 @@ shift_key proc
 	mov	ah,al
 	pop	es
 	ret
+ENDIF
 shift_key endp
+
+IFDEF PC88VA
+IO_BEEP		equ	1CFh		; 8255 bit set/reset of port 1CDh
+ENDIF
 
 	public	beep_on
 beep_on proc
+IFDEF PC88VA
+	pushm	<ax,dx>
+	mov	dx,IO_BEEP
+	mov	al,6			; XBEEP=0: on
+	out	dx,al
+	popm	<dx,ax>
+ELSE
 	outi	37h,6
+ENDIF
 	ret
 beep_on endp
 
 	public	beep_off
 beep_off proc
+IFDEF PC88VA
+	pushm	<ax,dx>
+	mov	dx,IO_BEEP
+	mov	al,7			; XBEEP=1: off
+	out	dx,al
+	popm	<dx,ax>
+ELSE
 	outi	37h,7
+ENDIF
 	ret
 beep_off endp
 
@@ -807,9 +957,13 @@ KEY_INIT	equ	10000000b
 sm_gettrgkey proc
 	push	ds
 	movseg	ds,ss
+IFDEF PC88VA
+	call	getmatrix
+ELSE
 	clr	ax
 	mov	es,ax
 	mov	di,keytbl
+ENDIF
 	mov	cx,14
 	clr	al
    repz	scasb
@@ -833,8 +987,12 @@ sm_gettrgkey endp
 sm_sensekey proc
 	push	ds
 	movseg	ds,ss
+IFDEF PC88VA
+	call	getmatrix
+ELSE
 	clr	ax
 	mov	es,ax
+ENDIF
 	call	shift_key
 	mov	di,trgp
 	mov	al,trgbit
@@ -873,6 +1031,185 @@ sens8:	mov	trgc,al
 sm_sensekey endp
 
 	assume	ds:nothing
+
+IFDEF PC88VA
+;--- Check function key ---
+; VZ draws the function key labels itself on the bottom line.
+
+tb_fkeyspc10	db	10,6,1,1,1,1,4,1,1,1,1,4
+
+checkfkey proc
+	push	cx
+	call	dosheight
+	tst	cl
+	pop	cx
+	jz	chkfk9
+	call	shift_key
+	mov	al,4
+	test	ah,KEY_ALT
+	jnz	chkfk1
+	mov	al,3
+	test	ah,KEY_CTRL
+	jnz	chkfk1
+	mov	al,2
+	test	ah,KEY_SHIFT
+	jnz	chkfk1
+	mov	al,1
+chkfk1:	call	dispfkey
+chkfk9:	ret
+checkfkey endp
+
+;--- Display function key ---
+;-->
+; AL :key mode (0=OFF, 1=normal, 2=shift, 3=ctrl, 4=alt)
+
+dispfkey proc
+	cmp	al,fkeymode
+	je	dspf9
+	pushm	<bx,cx,dx,si,di>
+	push	ax
+	mov	al,ATR_FKEY
+	call	getatr
+	mov	dl,al
+	mov	al,ATR_DOS
+	call	getatr
+	mov	dh,al
+	pop	ax
+	push	ax
+	tst	dl
+	jz	dspf8
+	tst	al
+_if z
+	mov	dl,dh
+	clr	di
+_else
+	mov	di,fkeytbl
+	dec	al
+	mov	ah,al
+  _repeat
+	cmp	byte ptr [di],-1
+	je	dspf8
+	tst	ah
+    _break z
+	mov	al,CR
+	mov	cx,-1
+  repne	scasb
+	dec	ah
+  _until
+_endif
+	pop	ax
+	mov	fkeymode,al
+	mov	si,di
+	push	ax
+	call	dispfkey1
+dspf8:	pop	ax
+	popm	<di,si,dx,cx,bx>
+dspf9:	ret
+
+dispfkey1:
+	push	bp
+	push	dx
+	call	dosheight
+	mov	dh,ch
+	clr	ch
+	tstb	dspkeyf
+_ifn z
+	mov	dl,4
+	call	mkscrnp
+	pop	dx
+_else
+	clr	dl
+	call	mkscrnp
+	pop	dx
+	mov	cl,4
+	call	putspces
+_endif
+	mov	bp,offset cgroup:tb_fkeyspc10
+	mov	bx,cs:[bp]
+	inc	bp
+	inc	bp
+_repeat
+	mov	cl,bh
+  _repeat
+	clr	ah
+	tst	si
+	jz	dspf1
+	cmp	byte ptr [si],CR
+	je	dspf1
+	lodsb
+	tst	al
+    _if z
+dspf1:
+      _repeat
+	mov	ax,SPC
+	call	abputc
+      _loop
+	jmps	dspf2
+    _endif
+	call	iskanji
+    _if c
+	push	cx
+	mov	cx,dx
+	mov	dh,al
+	lodsb
+	mov	dl,al
+	call	cvtjis
+	xchg	al,ah
+	sub	al,20h
+	mov	dx,cx
+	pop	cx
+	call	abputc
+	or	ah,80h			; right half
+	dec	cx
+    _endif
+	call	abputc
+  _loop
+  _repeat
+	lodsb
+	tst	al
+  _until z
+dspf2:
+	mov	cl,cs:[bp]
+	inc	bp
+	call	putspces
+	dec	bl
+_until z
+	pop	bp
+	ret
+
+putspces:
+	xchg	dh,dl
+	mov	ax,SPC
+  _repeat
+	call	abputc
+  _loop
+	xchg	dh,dl
+	ret
+
+dispfkey endp
+
+;--- Read key matrix ---
+;<-- ES:DI :key matrix
+
+getmatrix proc
+	pushm	<ax,cx>
+	movseg	es,ss
+	mov	di,offset cgroup:va_matrix
+	clr	cx
+_repeat
+	mov	al,cl
+	mov	ah,0Dh			; KyGroup
+	int	INT_KBBIOS
+	mov	es:[di],ah
+	inc	di
+	inc	cx
+	cmp	cl,16
+_until e
+	mov	di,offset cgroup:va_matrix
+	popm	<cx,ax>
+	ret
+getmatrix endp
+ENDIF
 
 ;--- Check key ---
 ;<-- CY :break

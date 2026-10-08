@@ -8,7 +8,7 @@
 
 ;--- Messages ---
 
-GDATA idword	label	byte
+GDATA idword,	label,	byte
 IFDEF PC98
 		db	'98'
 ENDIF
@@ -81,7 +81,7 @@ GDATA mg_install,db,	<'ƒƒ‚ƒŠ‚Éí’“‚µ‚Ü‚µ‚½.'>
 GDATA mg_tsr2,	db,	<'i-z‚Å‰ğ•új',CR,LF,'$'>
 GDATA mg_nospc,	db,	<'ƒƒ‚ƒŠ‚ª‘«‚è‚Ü‚¹‚ñ.',CR,LF,'$'> ; ##155.85
 
-GDATA mg_harderr label byte			; ##151.08
+GDATA mg_harderr, label, byte			; ##151.08
 		db	'‘‚İ‹Ö~‚Å‚·',0
 		db	'w’è‚ªˆá‚¢‚Ü‚·',0
 		db	'€”õ‚ª‚Å‚«‚Ä‚¢‚Ü‚¹‚ñ',0
@@ -137,7 +137,7 @@ GDATA mg_install,db	<'installed.'>
 GDATA mg_tsr2,	db	<'(-z to remove)',CR,LF,'$'>
 GDATA mg_nospc,	db,	<'Out of memory.',CR,LF,'$'>
 
-GDATA mg_harderr label byte			; ##151.08
+GDATA mg_harderr, label, byte			; ##151.08
 		db	'write protected',0
 		db	'not exist',0
 		db	'not ready',0

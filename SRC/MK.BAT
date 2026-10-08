@@ -1,6 +1,6 @@
 echo off
 rem	-------	Make vz???.com -------
-rem	usage: mk [98,J31,IBM,IBMJ,AX,55,US]
+rem	usage: mk [98,J31,IBM,IBMJ,AX,55,US,VA]
 rem	       mk vmap
 rem
 rem	%ASM%	:assembler name cap (opt,t,m)  ex: set asm=opt
@@ -15,7 +15,7 @@ goto mk_98
 
 :init2
 type nul >dummy
-for %%a in (98 j31 J31 ibm IBM ibmj IBMJ ax AX 55 us US) do if "%1"=="%%a" goto mk_%%a
+for %%a in (98 j31 J31 ibm IBM ibmj IBMJ ax AX 55 us US va VA) do if "%1"=="%%a" goto mk_%%a
 command /c ac %1
 lk %1
 
@@ -52,6 +52,11 @@ goto makevz
 :mk_US
 set HARD=US
 set masm=/dUS
+goto makevz
+
+:mk_VA
+set HARD=VA
+set masm=/dPC88VA
 goto makevz
 
 :makevz

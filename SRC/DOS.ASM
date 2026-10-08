@@ -145,6 +145,13 @@ ENDIF
 	extrn	to_edit1	:near
 
 	extrn	cs_stack	:near
+IFDEF PC88VA
+	extrn	chkscr_va	:near
+	extrn	getsends	:near
+	wseg
+	extrn	tmpbuf4		:word	; command line is in tmpbuf
+	endws
+ENDIF
 	extrn	windgets1	:near
 	extrn	dos_go		:near
 
@@ -305,6 +312,20 @@ exec2:
 	mov	dl,LF
 	call	cputc
 	pop	cx
+IFDEF PC88VA
+	jcxz	exec_va9
+	call	va_command
+	jc	execx
+	jz	exec_va9
+	push	ss			; external program: SS:DI
+	push	di
+	call	setdoskey
+	call	resetint24
+	call	swapout
+	jmp	lo_exec
+exec_va9:
+	jmp	exec1
+ENDIF
 	movseg	es,cs
 	mov	di,offset cgroup:parbuf	; ##156.96
 	mov	ax,cx
@@ -345,10 +366,15 @@ cs_exec:
 	pushf
 	movseg	ds,cs
 	mov	invz,FALSE
+IFNDEF NOXSCR
 	call	copyxptrs
+ENDIF
 	call	stack_ss
 	movseg	ds,ss
 	movseg	es,ss
+IFDEF PC88VA
+	call	chkscr_va		; the program may change the screen
+ENDIF
 	mov	bx,cs
 	msdos	F_SETPSP
 	call	tmp_close
@@ -368,6 +394,152 @@ execx:
 	jmp	exec11
 	
 se_command endp
+
+IFDEF PC88VA
+;--- Execute a command line on PC-Engine ---
+; There is no COMMAND.COM: internal commands run by INT 9Fh,
+; other words are taken as .COM/.EXE file names.
+;--> SI :command line (ASCIZ)
+;<--
+; CY :error
+; NC,ZR :done (internal command)
+; NC,NZ :external program, SS:DI :program path, parbuf :parameters
+
+va_command proc
+	pushm	<si,bp,ds,es>
+	mov	ax,gtops		; give back the unused far area
+	tst	ax
+_ifn z
+	mov	es,ax
+	mov	bx,ax
+	call	getsends
+	xchg	ax,bx
+	sub	bx,ax
+	msdos	F_REALLOC
+_endif
+	mov	bx,0800h		; work area: up to 32KB, at least 2KB
+	msdos	F_MALLOC
+_if c
+	cmp	bx,80h
+	jb	vacmd_x0
+	msdos	F_MALLOC
+	jc	vacmd_x0
+_endif
+	push	ax
+	mov	cx,bx
+	mov	bx,ax
+	mov	al,00000101b		; display, no key wait
+	int	9Fh			; destroys all but segment regs
+	pop	es
+	pushf
+	push	ax
+	msdos	F_FREE
+	pop	ax
+	popf
+	popm	<es,ds,bp,si>
+	pushf
+	push	ax
+	call	expandfar
+	pop	ax
+	popf
+_ifn c
+	cmp	al,al			; NC,ZR
+	ret
+_endif
+	cmp	ax,-1			; not an internal command
+	je	vacmd_ext		; (PC-Engine 1.1 returns -1,
+	cmp	ax,3			;  the manual says 3)
+	jne	vacmd_x
+vacmd_ext:
+	jmp	va_extcmd
+vacmd_x0:
+	popm	<es,ds,bp,si>
+	call	expandfar
+vacmd_x:
+	stc
+	ret
+va_command endp
+
+va_extcmd proc
+	push	es
+	movseg	es,ss
+	mov	di,tmpbuf4
+_repeat
+	lodsb
+	cmp	al,SPC
+_while e
+	dec	si
+	clr	bx			; BX :extension ptr
+_repeat
+	lodsb
+	cmp	al,SPC
+  _break be
+	cmp	al,'\'
+  _if e
+	clr	bx
+  _endif
+	cmp	al,'.'
+  _if e
+	mov	bx,di
+  _endif
+	stosb
+_until
+	dec	si			; SI :parameters
+	tst	bx
+_if z
+	mov	bx,di
+	mov	ax,'C.'
+	stosw
+	mov	ax,'MO'
+	stosw
+	call	isexist
+	jnc	vaext1
+	mov	di,bx
+	mov	ax,'E.'
+	stosw
+	mov	ax,'EX'
+	stosw
+_endif
+	call	isexist
+	jc	vaext_x
+vaext1:
+	movseg	es,cs			; parbuf :count,parameters,CR
+	mov	di,offset cgroup:parbuf
+	push	di
+	inc	di
+	clr	cx
+_repeat
+	lodsb
+	tst	al
+  _break z
+	stosb
+	inc	cx
+_until
+	mov	al,CR
+	stosb
+	pop	di
+	mov	es:[di],cl
+	mov	di,tmpbuf4
+	or	sp,sp			; NC,NZ
+vaext_x:
+	pop	es
+	ret
+va_extcmd endp
+
+;--> ES:DI :end of file name
+;<-- CY :not found
+
+isexist	proc
+	pushm	<cx,dx>
+	clr	al
+	stosb
+	dec	di
+	mov	dx,tmpbuf4
+	msdos	F_ATTR,0
+	popm	<dx,cx>
+	ret
+isexist	endp
+ENDIF
 
 	endes
 
@@ -1170,6 +1342,13 @@ _endif
 	mov	ax,cs
 	tstw	es:[mcb_psp]
 	jz	chkmcb9
+IFDEF PC88VA
+	mov	ax,es			; PC-Engine: the owner field of
+	inc	ax			; a block is the block itself
+	cmp	es:[mcb_psp],ax
+	je	chkmcb9
+	mov	ax,cs
+ENDIF
 	cmp	es:[mcb_psp],ax
 chkmcb9:pop	es
 	ret

@@ -1293,7 +1293,11 @@ getcurdir1:
 	call	getcurdrv
 	mov	curdrv,al
 	push	ax
+IFDEF PC88VA
+	mov	dl,'/'			; no AH=37h on PC-Engine
+ELSE
 	msdos	F_SWITCHAR,0
+ENDIF
 	mov	al,'/'
 	cmp	dl,al
 _if e

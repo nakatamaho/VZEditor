@@ -734,7 +734,12 @@ _ifn z
 	mov	dx,offset cgroup:mg_cstmerr
 rdef_x:
 	call	cputmg
+IFDEF PC88VA
+	mov	ah,00h			; GetChar
+	int	INT_KBBIOS
+ELSE
 	msdos	F_CONINE
+ENDIF
 	call	cputcrlf
 	clc
 _endif
@@ -1177,10 +1182,12 @@ _loop
 	mov	cx,5
    rep	movsb
 	movseg	ds,ss
+IFNDEF PC88VA
 	mov	ax,envseg
 	xchg	myenvseg,ax
 	mov	es,ax
 	msdos	F_FREE
+ENDIF
 	pop	es
 	ret
 free_env endp
@@ -1188,6 +1195,9 @@ free_env endp
 ;--- Set root env seg ---
 
 getrootenvs proc
+IFDEF PC88VA
+	ret				; no parent PSP: keep own environment
+ENDIF
 	push	es
 ;	msdos	F_GETVCT,2Eh		; ##153.39
 	mov	es,parentpsp		;
@@ -1214,6 +1224,9 @@ getrootenvs endp
 ;--- 2nd initialize ---
 
 init2:
+IFDEF PC88VA
+	mov	tsrflag,0		; PC-Engine: no resident mode
+ENDIF
 	tstb	tsrflag
 	jnz	resident1
 	
@@ -1267,8 +1280,35 @@ ENDIF
 
 	public	cputc,cputs,cputmg,cputcrlf,cputstr
 cputc:
+IFDEF PC88VA
+;  PC-Engine has no DOS console: use ScrOutC of the screen editor BIOS
+	pushm	<ax,dx>
+	mov	al,dl
+	clr	dh
+	xchg	dh,cs:cputk1		; pending kanji 1st byte
+	tst	dh
+	jnz	cputc2
+	cmp	al,81h
+	jb	cputc1
+	cmp	al,9Fh
+	jbe	cputck
+	cmp	al,0E0h
+	jb	cputc1
+	cmp	al,0FCh
+	ja	cputc1
+cputck:	mov	cs:cputk1,al
+	jmps	cputc9
+cputc1:	clr	dh
+cputc2:	mov	dl,al
+	mov	ah,05h			; ScrOutC
+	int	INT_SCREDIT
+cputc9:	popm	<dx,ax>
+	ret
+cputk1	db	0
+ELSE
 	msdos	F_DSPCHR
 	ret
+ENDIF
 cputcrlf:
 	mov	dx,offset cgroup:mg_crlf
 cputmg:
@@ -1278,7 +1318,20 @@ cputmg:
 	pop	ds
 	ret
 cputs:
+IFDEF PC88VA
+	pushm	<dx,si>
+	mov	si,dx
+_repeat
+	lodsb
+	cmp	al,'$'
+  _break e
+	mov	dl,al
+	call	cputc
+_until
+	popm	<si,dx>
+ELSE
 	msdos	F_DSPSTR
+ENDIF
 cputs9:	ret
 
 cputstr:
@@ -1590,7 +1643,11 @@ chkmem:
 	ret
 memerr:
 	mov	dx,offset cgroup:mg_nospc
-cfgerr:	call	cputmg
+cfgerr:
+IFDEF PC88VA
+	call	resetcrt		; back to the PC-Engine screen
+ENDIF
+	call	cputmg
 termerr:
 	movseg	ds,cs
 	call	xmem_close		; ##155.84

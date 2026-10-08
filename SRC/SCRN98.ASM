@@ -8,12 +8,26 @@
 
 INBLK		equ	80h
 
+IFDEF PC88VA
+OFF_ATR		equ	8000h		; attribute area at TVRAM+8000h
+ELSE
 OFF_ATR		equ	2000h
+ENDIF
 ATTR_REV	equ	04h
 ATTR_SEC	equ	01h
 ATTR_UL		equ	08h
 ATTR_VLINE	equ	10h
 JISFLAG		equ	80h
+
+;--- Make the right half of a kanji code ---
+
+setright macro
+IFDEF PC88VA
+	or	ah,JISFLAG		; PC-88VA: bit 15
+ELSE
+	or	al,JISFLAG		; OOPS! not ah! 
+ENDIF
+	endm
 
 hireso		equ	0501h		; ##16
 raster		equ	053Bh		; ##16
@@ -230,7 +244,7 @@ _if ae
 	jbe	next11
 _endif
 ENDIF
-	or	al,JISFLAG		; OOPS! not ah! 
+	setright
 	jmp	nexts
 ;	jmp	next2			; ##150.01
 cktop:	
@@ -455,6 +469,14 @@ disptext endp
 
 	public	dosheight
 dosheight proc
+IFDEF PC88VA
+	mov	ch,HIGHT-1
+	mov	cl,ss:va_fkey		; 1: function key line (drawn by VZ)
+	mov	fnckey,cl
+	mov	linecnt,HIGHT
+	mov	lineh,15		; 16 raster/line
+	ret
+ENDIF
 	pushm	<ax,es>
 	clr	ax
 	mov	es,ax
@@ -485,6 +507,12 @@ _endif
 dosheight endp
 
 check_20 proc
+IFDEF PC88VA
+	push	ax
+	or	al,-1			; NZ: always 25 lines
+	pop	ax
+	ret
+ENDIF
 	pushm	<ax,es>
 	clr	ax
 	mov	es,ax
@@ -510,6 +538,14 @@ setrefloc:
 	pop	dx
 	ret
 getdosloc2:
+IFDEF PC88VA
+	push	ax
+	mov	ah,26h			; Askloc: DH=column, DL=line
+	int	INT_TXBIOS
+	xchg	dl,dh
+	pop	ax
+	ret
+ENDIF
 	push	es
 	clr	dx
 	mov	es,dx
@@ -590,8 +626,12 @@ getatr2:
 	and	bl,11000b
 	shr	bl,1
 	and	al,7
+IFDEF PC88VA
+	shlm	al,4
+ELSE
 	rorm	al,3
 	or	al,1
+ENDIF
 	or	al,bl
 	pop	bx
 	ret
@@ -696,7 +736,7 @@ _if ae
 _endif
 ENDIF
 	call	putc1
-	or	al,JISFLAG
+	setright
 	jmps	putc1
 putcw1:	call	putc
 	mov	al,dl
@@ -806,7 +846,7 @@ _if ae
 _endif
 ENDIF
 	call	putvram
-	or	al,JISFLAG
+	setright
 putsk1:	inc	cl
 	cmp	cl,win.sx
 	jb	puts2
@@ -872,7 +912,9 @@ vlinec	proc
 	tst	ch
 	jz	vline9
 	pushm	<cx,dx,di,es>
+IFNDEF PC88VA
 	outi	68h,0			; vertical line mode
+ENDIF
 	les	di,dsp
 	mov	ax,GRC_V
 	call	getgrafchr
@@ -908,12 +950,21 @@ vputc	proc
 vputc	endp
 
 putck	proc
+IFDEF PC88VA
+	test	byte ptr es:[di+1],7Fh
+	jz	putck2
+	tstb	es:[di+1]
+	jns	putck1
+	test	byte ptr es:[di-1],7Fh
+	jz	putck2
+ELSE
 	tstb	es:[di+1]
 	jz	putck2
 	tstb	es:[di]
 	jns	putck1
 	tstb	es:[di-1]		; ##1.5
 	jz	putck2
+ENDIF
 	mov	word ptr es:[di-2],0
 	jmps	putck2
 putck1:
@@ -1109,8 +1160,132 @@ getdosscrn proc
 	call	getscrn
 	mov	si,OFF_ATR
 	call	getscrn
+IFDEF PC88VA
+	tstb	ss:va_invz
+	jnz	gdscr9
+	pushm	<bx,cx,di,es>		; from the PC-Engine screen:
+	call	getgvseg		; blank the rows it does not show
+	mov	es,ax
+	mov	al,va_dosrows
+	mov	ah,WD*2
+	mul	ah
+	mov	bx,ax			; BX :offset of the first hidden row
+	mov	cx,tvsize
+	sub	cx,bx
+	shr	cx,1
+	mov	di,dosscrn
+	add	di,bx
+	push	cx
+	mov	ax,SPC
+    rep	stosw
+	pop	cx
+	mov	di,dosscrn
+	add	di,tvsize
+	add	di,bx
+	mov	ax,0070h		; white
+    rep	stosw
+	popm	<es,di,cx,bx>
+	jmp	scr_vz
+gdscr9:
+ENDIF
 	ret
 getdosscrn endp
+
+IFDEF PC88VA
+;--- Switch PC-Engine screen mode ---
+; ChgSMod clears the frame buffers.
+
+scr_vz	proc				; VZ: 25 lines, no system line
+	pushm	<ax>
+	mov	ax,(02h shl 8)+SM_25LINE ; ChgSMod
+	int	INT_SCREDIT
+	mov	ax,(01h shl 8)+SYSL_NONE ; AlcSysL
+	int	INT_SCREDIT
+	push	dx			; console output scrolls above
+	mov	dx,HIGHT-1		; the function key line
+	sub	dl,ss:va_fkey
+	mov	ah,03h			; ChgScrW
+	int	INT_SCREDIT
+	pop	dx
+	mov	ss:precsr,CSR_OFF
+	mov	ss:fkeymode,0		; redraw function keys
+	mov	ss:va_invz,TRUE
+	popm	<ax>
+	ret
+scr_vz	endp
+
+;--- Restore the VZ screen after a program ---
+; PC-Engine may set its own screen layout again for a program.
+; Keep what the program displayed: its cursor line goes to the
+; command line of VZ.
+
+	public	chkscr_va
+chkscr_va proc
+	pushm	<ax,es>
+	mov	ax,0A000h
+	mov	es,ax
+	cmp	word ptr es:[TXCTL0+TXCTL_RH],HIGHT*16
+	jne	chkscr1
+	tstw	es:[TXCTL1+TXCTL_RH]
+	jz	chkscr9
+chkscr1:pushm	<bx,cx,dx,si,di,ds>
+	mov	ah,26h			; Askloc: DL=line
+	int	INT_TXBIOS
+	mov	al,HIGHT-2
+	sub	al,dl			; AL :rows to move down
+  _if b
+	clr	al
+  _endif
+	mov	ah,WD*2
+	mul	ah
+	mov	bx,ax
+	call	getgvseg		; save the screen at dosscrn
+	mov	es,ax
+	mov	ds,ss:dsp.@seg
+	mov	cx,WD*(HIGHT-1)
+	clr	si
+	mov	di,ss:dosscrn
+	pushm	<cx,si,di>
+    rep	movsw
+	popm	<di,si,cx>
+	mov	si,OFF_ATR
+	add	di,ss:tvsize
+    rep	movsw
+	call	scr_vz
+	mov	cx,WD*(HIGHT-1)*2	; restore it BX bytes lower
+	sub	cx,bx
+	shr	cx,1
+	push	ds
+	push	es
+	pop	ds
+	pop	es
+	mov	si,ss:dosscrn
+	mov	di,bx
+	pushm	<cx,si,di>
+    rep	movsw
+	popm	<di,si,cx>
+	add	si,ss:tvsize
+	add	di,OFF_ATR
+    rep	movsw
+	popm	<ds,di,si,dx,cx,bx>
+chkscr9:popm	<es,ax>
+	ret
+chkscr_va endp
+
+scr_dos	proc				; back to the PC-Engine layout
+	pushm	<ax>
+	mov	ah,02h			; ChgSMod
+	mov	al,ss:va_dosmode
+	int	INT_SCREDIT
+	mov	ah,01h			; AlcSysL
+	mov	al,ss:va_dossysl
+	int	INT_SCREDIT
+	mov	ss:precsr,CSR_OFF
+	mov	ss:va_invz,FALSE
+	popm	<ax>
+	ret
+scr_dos	endp
+ENDIF
 
 IFNDEF NOFILER
 	public	getcurscrn
@@ -1315,6 +1490,54 @@ initpwind endp
 csroff:
 	mov	al,CSR_OFF
 csron	proc
+IFDEF PC88VA
+	tst	al
+_if s
+	push	ax
+	mov	ax,2500h		; Csrctl: cursor off
+	int	INT_TXBIOS
+	pop	ax
+csroff1:mov	precsr,CSR_OFF
+csroff2:ret
+_endif
+	pushm	<cx,dx>
+	push	ax
+	mov	ax,dsp.@off
+	shr	ax,1
+	mov	cl,WD
+	div	cl
+	mov	dx,ax			; DH=column, DL=line
+	mov	ah,08h			; Locate
+	int	INT_TXBIOS
+	pop	ax
+	mov	ah,csr_i
+	cmp	al,CSR_INS
+  _ifn e
+	mov	ah,al
+	cmp	al,CSR_SYS
+    _ifn e
+	mov	ah,csr_o
+    _endif
+  _endif
+	mov	al,ah
+	xchg	al,precsr
+	cmp	ah,al
+  _ifn e
+	mov	al,00000010b		; CE: show, 8 dots, block cursor
+	test	ah,0011b
+    _ifn z
+	or	al,00010000b		; CSTL: line cursor
+    _endif
+	test	ah,1100b
+    _ifn z
+	or	al,00000001b		; BE: blink
+    _endif
+	mov	ah,25h			; Csrctl
+	int	INT_TXBIOS
+  _endif
+	popm	<dx,cx>
+	ret
+ELSE
 	tst	al
 _if s
 	bios	12h
@@ -1397,6 +1620,7 @@ _endif
 	bios	11h
 csron8:	popm	<es,dx,cx>
 	ret
+ENDIF
 csron	endp
 
 ;--- Under line cursor ---
@@ -1495,6 +1719,10 @@ mg_line31	db	1Bh,"[>3n",0
 	public	chgline
 chgline proc
 chgline1:
+IFDEF PC88VA
+	call	resetscrnh
+	ret
+ENDIF
 	push	ds
 	mov	si,offset cgroup:mg_line25
 	call	ishireso
@@ -1554,12 +1782,18 @@ resetscrnh endp
 ;--- Wait CRTV ---
 
 	public	waitcrtv
+IFDEF PC88VA
+IO_VSYNC	equ	40h
+ELSE
+IO_VSYNC	equ	60h
+ENDIF
+
 waitcrtv proc
 vwait1:
-	in	al,60h
+	in	al,IO_VSYNC
 	and	al,20h
 	jne	vwait1
-vwait2:	in	al,60h
+vwait2:	in	al,IO_VSYNC
 	and  	al,20h
 	je	vwait2
 	ret
@@ -1658,12 +1892,14 @@ smoothup2 endp
 smootharea proc
 	mov	dh,[bp].tw_py
 	mov	ch,[bp].tw_cy
+IFNDEF PC88VA
 	mov	al,dh
 	neg	al
 	out	78h,al
 	mov	al,ch
 	dec	al
 	out	7Ah,al
+ENDIF
 	add	dh,ch
 	call	clrline
 	mov	al,[bp].tw_cy
@@ -1700,7 +1936,13 @@ _endif
 initrolc endp
 
 ishireso proc
+IFDEF PC88VA
+	push	ax
+	or	al,-1			; NZ: no pixel smooth scroll
+	pop	ax
+ELSE
 	test	ss:hardware,ID_PC98Hi
+ENDIF
 	ret
 ishireso endp
 
@@ -1773,7 +2015,7 @@ rdwn9:
 	tstb	defatr
 _if s
 	mov	ax,dsp.@seg
-	add	ax,0200h
+	add	ax,OFF_ATR/16
 	mov	ds,ax
 	mov	es,ax
 	mov	cx,dx
@@ -1819,6 +2061,58 @@ move_vram	endp
 
 	public	resetcrt
 resetcrt proc
+IFDEF PC88VA
+;  Back to the PC-Engine screen.  It shows fewer rows than VZ,
+;  so scroll the DOS screen to keep the cursor row visible.
+	tstb	ss:va_invz
+	jz	rcrt9
+	pushm	<ax,bx,cx,dx,si,di,ds,es>
+	mov	dx,ss:dosloc		; DL,DH :x,y
+	tst	dl			; after a prompt: next line
+  _ifn z
+	clr	dl
+	cmp	dh,HIGHT-1
+    _if b
+	inc	dh
+    _endif
+  _endif
+	mov	al,dh
+	sub	al,ss:va_dosrows
+	inc	al
+  _if s
+	clr	al
+  _endif
+	sub	dh,al
+	push	dx
+	mov	ah,WD*2
+	mul	ah
+	mov	bx,ax			; BX :offset of the first row to show
+	call	scr_dos
+	call	getgvseg
+	mov	ds,ax
+	mov	es,ss:dsp.@seg
+	mov	al,ss:va_dosrows
+	mov	ah,WD
+	mul	ah
+	mov	cx,ax
+	mov	si,ss:dosscrn
+	add	si,bx
+	clr	di
+	pushm	<cx,si>
+    rep	movsw
+	popm	<si,cx>
+	add	si,ss:tvsize
+	mov	di,OFF_ATR
+    rep	movsw
+	pop	dx
+	xchg	dl,dh			; DH=column, DL=line
+	mov	ah,08h			; Locate
+	int	INT_TXBIOS
+	mov	ax,2503h		; Csrctl: show, blink
+	int	INT_TXBIOS
+	popm	<es,ds,di,si,dx,cx,bx,ax>
+rcrt9:
+ENDIF
 	ret
 resetcrt endp
 
@@ -1843,7 +2137,50 @@ get_indichar endp
 ;--- Init VRAM ---
 
 	public	initvram
+IFDEF PC88VA
+	dseg
+va_dosmode	db	SM_20LINE
+va_dossysl	db	SYSL_10KEY
+va_dosrows	db	19		; rows the PC-Engine screen shows
+va_fkey		db	1
+va_invz		db	FALSE		; in the VZ screen mode
+	endds
+
+TXCTL0		equ	7F00h		; split screen 0 control table
+TXCTL1		equ	7F20h		; split screen 1 control table
+TXCTL_VH	equ	04h		; frame buffer height
+TXCTL_RH	equ	14h		; split screen height (rasters)
+ENDIF
+
 initvram proc
+IFDEF PC88VA
+	push	es
+	mov	tvsize,WD*HIGHT*2
+	mov	ax,0A000h
+	mov	dsp.@seg,ax
+	mov	es,ax			; read the TSP control table that
+	mov	al,SM_20LINE		; PC-Engine set up, to restore it
+	mov	cl,20
+	cmp	word ptr es:[TXCTL1+TXCTL_RH],16
+  _if e
+	mov	al,SM_25LINE
+	mov	cl,16
+  _endif
+	mov	va_dosmode,al
+	mov	ax,es:[TXCTL0+TXCTL_RH]
+	div	cl
+	mov	va_dosrows,al
+	mov	al,SYSL_NONE
+	mov	va_fkey,0
+	tstw	es:[TXCTL1+TXCTL_VH]
+  _ifn z
+	mov	al,SYSL_10KEY
+	mov	va_fkey,1
+  _endif
+	mov	va_dossysl,al
+	pop	es
+	ret
+ENDIF
 	push	es
 	clr	ax
 	mov	es,ax
@@ -1924,12 +2261,27 @@ checkhard proc
 	push	es
 	clr	ax
 	mov	es,ax
+IFDEF PC88VA
+	mov	ax,es:[INT_TXBIOS*4+2]	; text BIOS and screen editor
+	tst	ax
+	jz	chkh_x
+	mov	ax,es:[INT_SCREDIT*4+2]
+	tst	ax
+	jz	chkh_x
+	mov	ax,es:[INT_KBBIOS*4+2]
+	tst	ax
+	clc
+	jnz	chkh9
+chkh_x:	stc
+chkh9:
+ELSE
 	mov	ax,es:[0DCh*4]
 	cmp	ax,es:[0DCh*4+4]
 	clc
 _if e
 	stc
 _endif
+ENDIF
 	pop	es
 	ret
 checkhard endp

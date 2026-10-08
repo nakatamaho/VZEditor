@@ -503,7 +503,12 @@ check_delay	endp
 
 get_time	proc
 		pushm	<cx,dx>
+IFDEF PC88VA
+		mov	ah,02h			; get time: CH,CL,DH
+		int	INT_TDBIOS
+ELSE
 		msdos	2Ch
+ENDIF
 		mov	al,60
 		mul	cl
 		add	al,dh
@@ -628,8 +633,12 @@ chkstopkey proc
 	xchg	cs:stopf,al
 	tst	al
 _ifn z
+IFDEF PC88VA
+	call	read_key
+ELSE
 	mov	dl,0FFh
 	msdos	F_CONIO
+ENDIF
 	stc
 _endif
 	ret

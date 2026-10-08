@@ -8,6 +8,11 @@
 REXP		equ	TRUE		; VWX support by wing
 NEWEXPR		equ	TRUE		; new pointer handler by Sakakibara
 
+IFDEF PC88VA				; PC-88VA / PC-Engine: a PC98 variant
+PC98		equ	TRUE
+NOXSCR		equ	TRUE
+ENDIF
+
 
 IFNDEF PC98
   IFNDEF J31
@@ -470,6 +475,19 @@ PRO_NOHIST	equ	1000000b
 NULLCODE	equ	0FFh
 WD		equ	80
 HIGHT		equ	25
+
+IFDEF PC88VA
+;--- PC-Engine BIOS ---
+
+INT_KBBIOS	equ	82h		; keyboard BIOS
+INT_TXBIOS	equ	83h		; text BIOS
+INT_TDBIOS	equ	8Ch		; calendar clock BIOS
+INT_SCREDIT	equ	94h		; screen editor BIOS
+SM_25LINE	equ	44h		; ChgSMod: 80 col, 25 lines, attr mode 1
+SM_20LINE	equ	54h		; ChgSMod: 80 col, 20 lines, attr mode 1
+SYSL_NONE	equ	0FFh		; AlcSysL: no system line
+SYSL_10KEY	equ	0Ah		; AlcSysL: 10 soft keys
+ENDIF
 STRSZ		equ	128
 TTLSTRSZ	equ	64
 TMPSZ		equ	256
