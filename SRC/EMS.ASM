@@ -113,6 +113,10 @@ emsid		db	'EMMXXXX0'
 		public	ems_open
 ems_open	proc
 		push	es
+IFDEF PC88VA
+		mov	emspages,0	; PC-88VA: never use EMS (as EM0),
+		jmps	eopen_x		; even if an EMS driver is installed
+ENDIF
 		tstw	emspages
 		jz	eopen_x
 		msdos	F_GETVCT,INT_EMS
